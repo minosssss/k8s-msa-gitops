@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-svc
+  namespace: default
+  labels: { app: user-svc }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: user-svc }
+  template:
+    metadata:
+      labels: { app: user-svc }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - { name: conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 80 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { memory: "32Mi", cpu: "25m" }
+            limits:   { memory: "64Mi", cpu: "100m" }
+      volumes:
+        - name: conf
+          configMap: { name: user-svc-nginx-conf }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-svc
+  namespace: default
+  labels: { app: user-svc }
+spec:
+  type: ClusterIP
+  selector: { app: user-svc }
+  ports:
+    - { port: 80, targetPort: 80, protocol: TCP }

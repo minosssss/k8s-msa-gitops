@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-svc-nginx-conf
+  namespace: default
+data:
+  default.conf: |
+    server {
+      listen 80;
+
+      location /healthz {
+        return 200 '{"service":"order","status":"healthy"}';
+        add_header Content-Type application/json;
+      }
+
+      location = /orders/create {
+        content_by_lua_block {
+          local cjson = require "cjson"
+
+          ngx.req.read_body()
+          local body_data = ngx.req.get_body_data()
+          local ok, data = pcall(cjson.decode, body_data or "")
+          if not ok or not data.user_id or not data.item then
+            ngx.status = 400
+            ngx.header.content_type = "application/json"
+            ngx.say(cjson.encode({ error = "user_id, item required" }))
+            return
+          end
+
+          -- 1. user-svc 호출 (사용자 존재 확인)
+          local res_user = ngx.location.capture("/internal/users")
+          if res_user.status ~= 200 then
+            ngx.status = 502
+            ngx.header.content_type = "application/json"
+            ngx.say(cjson.encode({ error = "user-svc unreachable", status = res_user.status }))
+            return
+          end
+
+          local users = cjson.decode(res_user.body)
+          local found = false
+          for _, u in ipairs(users) do
+            if u.id == data.user_id then found = true end
+          end
+
+          if not found then
+            ngx.status = 404
+            ngx.header.content_type = "application/json"
+            ngx.say(cjson.encode({ error = "user not found", user_id = data.user_id }))
+            return
+          end
+
+          -- 2. order 쓰기 (order-svc-write -> pg-write-svc)
+          local order_body = cjson.encode({ user_id = data.user_id, item = data.item, status = "pending" })
+          local res_order = ngx.location.capture("/internal/order-write", {
+            method = ngx.HTTP_POST,
+            body = order_body,
+          })
+
+          if res_order.status ~= 201 then
+            ngx.status = 502
+            ngx.header.content_type = "application/json"
+            ngx.say(cjson.encode({ error = "order write failed", status = res_order.status, body = res_order.body }))
+            return
+          end
+
+          -- 3. notification-svc 호출
+          local res_notify = ngx.location.capture("/internal/notify")
+
+          ngx.status = 201
+          ngx.header.content_type = "application/json"
+          ngx.say(cjson.encode({
+            order = cjson.decode(res_order.body),
+            notification = (res_notify.status == 200) and cjson.decode(res_notify.body) or { status = "failed" }
+          }))
+        }
+      }
+
+      location = /internal/users {
+        internal;
+        proxy_pass http://user-svc/users;
+      }
+
+      location = /internal/order-write {
+        internal;
+        proxy_pass http://order-svc-write:3000/orders;
+        proxy_set_header Content-Type "application/json";
+        proxy_set_header Prefer "return=representation";
+      }
+
+      location = /internal/notify {
+        internal;
+        proxy_pass http://notification-svc/;
+      }
+    }

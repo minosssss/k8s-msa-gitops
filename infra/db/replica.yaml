@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pg-replica
+  namespace: default
+  labels: { app: pg, role: replica }
+spec:
+  serviceName: pg-headless
+  replicas: 1
+  selector:
+    matchLabels: { app: pg, role: replica }
+  template:
+    metadata:
+      labels: { app: pg, role: replica }
+    spec:
+      initContainers:
+        - name: pg-basebackup
+          image: postgres:15
+          env:
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+            - name: REPLICATION_USER
+              valueFrom: { secretKeyRef: { name: pg-secret, key: REPLICATION_USER } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: pg-secret, key: REPLICATION_PASSWORD } }
+          command:
+            - sh
+            - -c
+            - |
+              if [ -s "$PGDATA/PG_VERSION" ]; then
+                echo "data exists, skip basebackup"
+              else
+                pg_basebackup -h pg-primary-0.pg-headless -D "$PGDATA" -U "$REPLICATION_USER" -Fp -Xs -P -R
+              fi
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data, subPath: pgdata }
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports: [{ containerPort: 5432 }]
+          envFrom:
+            - secretRef: { name: pg-secret }
+          env:
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data, subPath: pgdata }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "msauser", "-d", "msademo"] }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: { memory: "256Mi", cpu: "250m" }
+            limits:   { memory: "512Mi", cpu: "500m" }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources: { requests: { storage: 2Gi } }

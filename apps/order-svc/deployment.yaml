@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-svc
+  namespace: default
+  labels: { app: order-svc }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: order-svc }
+  template:
+    metadata:
+      labels: { app: order-svc }
+    spec:
+      containers:
+        - name: openresty
+          image: openresty/openresty:1.25.3.1-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - { name: conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 80 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { memory: "64Mi", cpu: "100m" }
+            limits:   { memory: "128Mi", cpu: "300m" }
+      volumes:
+        - name: conf
+          configMap: { name: order-svc-nginx-conf }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-svc
+  namespace: default
+  labels: { app: order-svc }
+spec:
+  type: ClusterIP
+  selector: { app: order-svc }
+  ports:
+    - { port: 80, targetPort: 80, protocol: TCP }

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-html
+  namespace: default
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+      <meta charset="UTF-8">
+      <title>msa-3tier demo</title>
+      <style>
+        body { font-family: sans-serif; max-width: 640px; margin: 40px auto; }
+        button { margin: 4px; padding: 8px 12px; cursor: pointer; }
+        pre { background: #f4f4f4; padding: 12px; border-radius: 4px; min-height: 60px; white-space: pre-wrap; }
+      </style>
+    </head>
+    <body>
+      <h1>msa-3tier demo</h1>
+
+      <h3>User</h3>
+      <button onclick="getUsers()">사용자 목록 (GET /api/users)</button>
+      <button onclick="createUser()">사용자 생성 (POST /api/users/create)</button>
+
+      <h3>Order</h3>
+      <button onclick="createOrder()">주문 생성 (POST /api/orders/create)</button>
+
+      <h3>Notification</h3>
+      <button onclick="getNotifications()">알림 확인 (GET /api/notifications)</button>
+
+      <h3>결과</h3>
+      <pre id="result">여기에 응답이 표시됩니다.</pre>
+
+      <script>
+        function show(promise) {
+          promise
+            .then(res => res.json().then(body => ({ status: res.status, body })))
+            .then(({ status, body }) => {
+              document.getElementById('result').textContent =
+                'HTTP ' + status + '\n' + JSON.stringify(body, null, 2);
+            })
+            .catch(err => {
+              document.getElementById('result').textContent = 'Error: ' + err;
+            });
+        }
+
+        function getUsers() {
+          show(fetch('/api/users'));
+        }
+
+        function createUser() {
+          show(fetch('/api/users/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'frontend-user-' + Date.now() })
+          }));
+        }
+
+        function createOrder() {
+          show(fetch('/api/orders/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: 1, item: 'frontend-test-item' })
+          }));
+        }
+
+        function getNotifications() {
+          show(fetch('/api/notifications'));
+        }
+      </script>
+    </body>
+    </html>

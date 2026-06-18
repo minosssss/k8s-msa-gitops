@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-headless
+  namespace: default
+  labels: { app: pg }
+spec:
+  clusterIP: None
+  selector: { app: pg }
+  ports:
+    - { name: postgres, port: 5432, targetPort: 5432 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pg-primary
+  namespace: default
+  labels: { app: pg, role: primary }
+spec:
+  serviceName: pg-headless
+  replicas: 1
+  selector:
+    matchLabels: { app: pg, role: primary }
+  template:
+    metadata:
+      labels: { app: pg, role: primary }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports: [{ containerPort: 5432 }]
+          envFrom:
+            - secretRef: { name: pg-secret }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data, subPath: pgdata }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+          env:
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "msauser", "-d", "msademo"] }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: { memory: "256Mi", cpu: "250m" }
+            limits:   { memory: "512Mi", cpu: "500m" }
+      volumes:
+        - name: init
+          configMap: { name: pg-primary-init, defaultMode: 0755 }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources: { requests: { storage: 2Gi } }

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bff-nginx-conf
+  namespace: default
+data:
+  default.conf: |
+    server {
+      listen 80;
+
+      location /healthz {
+        return 200 '{"service":"bff","status":"healthy"}';
+        add_header Content-Type application/json;
+      }
+
+      location = /api/users {
+        proxy_pass http://user-svc/users;
+      }
+
+      location = /api/users/create {
+        proxy_pass http://user-svc/users/create;
+      }
+
+      location = /api/orders/create {
+        proxy_pass http://order-svc/orders/create;
+      }
+
+      location = /api/notifications {
+        proxy_pass http://notification-svc/;
+      }
+    }
